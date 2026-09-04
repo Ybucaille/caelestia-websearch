@@ -4,9 +4,8 @@
 # shellcheck shell=bash
 
 ADDON_ID="caelestia-websearch"
-ADDON_VERSION="1.0.0"
+ADDON_VERSION="1.1.0"
 SUPPORTED_CAELESTIA_VERSION="2.4.0-1"
-KNOWN_MANUAL_APPLIST_DIGEST="6d3c6c902ede43a923e448593e17d91300e7406e048559bc0b0e6d7537d8a93a"
 
 MANAGED_FILES=(
     "modules/launcher/AppList.qml"
@@ -15,6 +14,7 @@ MANAGED_FILES=(
 )
 
 PACKAGE_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)"
+PATCHER="$PACKAGE_ROOT/scripts/patch_launcher.py"
 PAYLOAD_DIGEST=""
 LOCAL_ROOT=""
 STATE_ROOT=""
@@ -115,20 +115,6 @@ discover_system_root() {
     esac
 }
 
-expected_base_digest() {
-    case "$1" in
-        modules/launcher/AppList.qml)
-            printf '%s\n' '11b85781e9a35e372f0266658419bea5d2cb297006208f90c6a0a27d57b42b9e'
-            ;;
-        modules/launcher/Content.qml)
-            printf '%s\n' '45c2df8d52bc3a8c301d27a75685b1f3813a2db4b01204dc8bdd84c574e57182'
-            ;;
-        *)
-            return 1
-            ;;
-    esac
-}
-
 file_digest() {
     sha256sum -- "$1" | awk '{print $1}'
 }
@@ -187,21 +173,45 @@ detect_versions() {
     fi
 }
 
-verify_supported_launcher() {
-    local rel expected actual
+verify_launcher_tree() {
+    local root=$1
+    local label=$2
+    local rel kind diagnostic app_status="" content_status=""
 
-    [[ -f $SYSTEM_ROOT/shell.qml ]] || die "Expected shell.qml not found below $SYSTEM_ROOT"
+    [[ -f $PATCHER ]] || die "Structural patcher not found: $PATCHER"
 
     for rel in "${MANAGED_FILES[@]:0:2}"; do
-        [[ -f $SYSTEM_ROOT/$rel ]] || die "Expected launcher file not found: $SYSTEM_ROOT/$rel"
-        expected=$(expected_base_digest "$rel")
-        actual=$(file_digest "$SYSTEM_ROOT/$rel")
-        if [[ $actual != "$expected" ]]; then
-            die "Unsupported launcher structure in $rel. This release targets Caelestia Shell $SUPPORTED_CAELESTIA_VERSION and made no changes."
+        [[ -f $root/$rel ]] || die "Expected launcher file not found: $root/$rel"
+        case "$rel" in
+            modules/launcher/AppList.qml) kind=app-list ;;
+            modules/launcher/Content.qml) kind=content ;;
+            *) die "No structural validator is defined for $rel" ;;
+        esac
+
+        if ! diagnostic=$(python3 "$PATCHER" --kind "$kind" --input "$root/$rel" --check 2>&1); then
+            error "Incompatible launcher structure in $rel: $diagnostic"
+            die 'The required WebSearch anchors were not found unambiguously. No Caelestia files were modified.'
         fi
+        info "$label $rel structure: $diagnostic"
+
+        case "$kind" in
+            app-list) app_status=$diagnostic ;;
+            content) content_status=$diagnostic ;;
+        esac
     done
 
-    info "Launcher structure is compatible with Caelestia Shell $SUPPORTED_CAELESTIA_VERSION."
+    if [[ $app_status != "$content_status" ]]; then
+        die "Partial WebSearch integration in $label launcher files (AppList.qml: $app_status; Content.qml: $content_status). No Caelestia files were modified."
+    fi
+    if [[ $app_status == compatible-patched && ! -f $root/modules/launcher/services/WebSearch.qml ]]; then
+        die "Partial WebSearch integration in $label launcher files: WebSearch.qml is missing. No Caelestia files were modified."
+    fi
+}
+
+verify_supported_launcher() {
+    [[ -f $SYSTEM_ROOT/shell.qml ]] || die "Expected shell.qml not found below $SYSTEM_ROOT"
+    verify_launcher_tree "$SYSTEM_ROOT" 'System'
+    info 'Launcher structure is compatible with the WebSearch patch.'
 }
 
 check_quickshell_selection() {

@@ -36,15 +36,6 @@ StyledListView {
             return "actions";
         }
 
-        // Explicit web provider: "google foo", "youtube foo", etc.
-        if (WebSearch.parse(text))
-            return "web";
-
-        // Normal application search first.
-        // If nothing matches, offer Google as a fallback.
-        if (text.trim() && Apps.search(text).length === 0)
-            return "web";
-
         return "apps";
     }
 
@@ -58,10 +49,6 @@ StyledListView {
             return Schemes.query(text);
         case "variant":
             return M3Variants.query(text);
-        case "web": {
-            const result = WebSearch.parse(text) ?? WebSearch.fallback(text);
-            return result ? [result] : [];
-        }
         default:
             return Apps.search(text);
         }
@@ -138,13 +125,6 @@ StyledListView {
 
             PropertyChanges {
                 root.delegate: variantItem
-            }
-        },
-        State {
-            name: "web"
-
-            PropertyChanges {
-                root.delegate: actionItem
             }
         }
     ]

@@ -48,6 +48,10 @@ Running `bash install.sh` is also supported. The installer:
 
 The system shell under `/etc/xdg/quickshell/caelestia` is read as a merge base and is never modified.
 
+For an existing installation of an older addon release, run `./uninstall.sh`
+before installing the new version so that the recorded pre-addon files can be
+restored first.
+
 ## Uninstall
 
 From the cloned repository:
@@ -66,13 +70,26 @@ Running the uninstaller when the addon is not installed is safe.
 - Caelestia Shell and its launcher
 - Quickshell (`qs`)
 - `xdg-open`
+- Python 3
 - standard command-line tools: Bash, GNU coreutils, `diff3`, and `flock`
 
 Arch Linux with the `caelestia-shell` package is the primary supported environment.
 
 ## Compatibility
 
-This release targets `caelestia-shell 2.4.0-1`. The installer displays the package version when `pacman` can determine it. If the version is unavailable or differs, installation is allowed only when the two patched upstream launcher files match the known 2.4.0 structure; otherwise it stops before modifying the user configuration.
+This release targets the Caelestia Shell 2.4 launcher structure and is tested
+against `caelestia-shell 2.4.0-1`. The installer displays the package version
+when `pacman` can determine it, but the package version is never treated as
+proof that the files are compatible.
+
+Compatibility is determined from the specific launcher anchors required by the
+addon. The installer derives a patched base from the detected system
+`AppList.qml` and `Content.qml`, then three-way merges only those addon changes
+into the user-local files. This supports the official v2.4.0 files as well as
+byte-different 2.4 variants and non-conflicting local customizations that retain
+the required structure. Missing, duplicated, ambiguous, or partially installed
+WebSearch anchors are rejected with a precise error before any launcher file is
+changed.
 
 Because Caelestia's launcher internals can change, update this addon before using it with a new incompatible Caelestia release.
 
@@ -90,6 +107,20 @@ The evaluation order is:
 4. Google fallback when no application matches.
 
 Web actions close the launcher and execute `xdg-open` with the encoded URL as a separate argument.
+
+## Tests
+
+Run the regression and transactional installer test suite with:
+
+```bash
+./tests/run.sh
+```
+
+The suite covers provider parsing and URL encoding, the official Caelestia
+v2.4.0 launcher fixture, a byte-different compatible variant, fresh
+installation, idempotent reinstallation, uninstall restoration, local
+customizations, partial integrations, a deliberate merge conflict, and an
+incompatible structure that must leave the target untouched.
 
 ## Safety and configuration
 

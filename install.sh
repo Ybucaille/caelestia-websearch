@@ -67,12 +67,13 @@ initialise_local_copy() {
 prepare_generation() {
     local current_root=$1
     local local_created=$2
-    local stamp rel current base payload staged action merge_code
+    local stamp rel current base payload staged action merge_code kind
+    local system_status current_status patched_base
 
     stamp=$(date -u +%Y%m%dT%H%M%SZ)
     mkdir -p -- "$STATE_ROOT/generations"
     GENERATION_TMP=$(mktemp -d "$STATE_ROOT/generations/.pending-${stamp}-XXXXXX")
-    mkdir -p -- "$GENERATION_TMP/metadata" "$GENERATION_TMP/actions" "$GENERATION_TMP/original" "$GENERATION_TMP/installed" "$GENERATION_TMP/staged"
+    mkdir -p -- "$GENERATION_TMP/metadata" "$GENERATION_TMP/actions" "$GENERATION_TMP/original" "$GENERATION_TMP/installed" "$GENERATION_TMP/staged" "$GENERATION_TMP/patched-base"
     printf '%s\n' pending > "$GENERATION_TMP/status"
     printf '%s\n' "$LOCAL_ROOT" > "$GENERATION_TMP/metadata/local-root"
     printf '%s\n' "$local_created" > "$GENERATION_TMP/metadata/local-created"
@@ -91,12 +92,32 @@ prepare_generation() {
             modules/launcher/AppList.qml | modules/launcher/Content.qml)
                 [[ -f $current ]] || die "Expected local launcher file not found: $current"
                 base=$SYSTEM_ROOT/$rel
-                if cmp -s -- "$current" "$payload" || \
-                    [[ $rel == modules/launcher/AppList.qml && $(file_digest "$current") == "$KNOWN_MANUAL_APPLIST_DIGEST" ]]; then
-                    cp --preserve=mode,timestamps -- "$payload" "$staged"
+                patched_base=$GENERATION_TMP/patched-base/$rel
+                mkdir -p -- "$(dirname -- "$patched_base")"
+
+                case "$rel" in
+                    modules/launcher/AppList.qml) kind=app-list ;;
+                    modules/launcher/Content.qml) kind=content ;;
+                esac
+
+                if ! system_status=$(python3 "$PATCHER" --kind "$kind" --input "$base" --output "$patched_base" 2>&1); then
+                    error "System $rel is not safely patchable: $system_status"
+                    exit 1
+                fi
+                if ! current_status=$(python3 "$PATCHER" --kind "$kind" --input "$current" --check 2>&1); then
+                    error "Local $rel is not safely patchable: $current_status"
+                    error 'No Caelestia files were modified.'
+                    exit 1
+                fi
+
+                if [[ $current_status == compatible-patched || $system_status == compatible-patched ]]; then
+                    if ! python3 "$PATCHER" --kind "$kind" --input "$current" --output "$staged" >/dev/null; then
+                        error "Could not prepare the already-compatible local $rel"
+                        exit 1
+                    fi
                 elif diff3 --merge --show-overlap \
                     --label current --label "Caelestia-$SUPPORTED_CAELESTIA_VERSION" --label addon \
-                    "$current" "$base" "$payload" > "$staged"; then
+                    "$current" "$base" "$patched_base" > "$staged"; then
                     :
                 else
                     merge_code=$?
@@ -219,6 +240,7 @@ main() {
     require_command diff3
     require_command flock
     require_command mktemp
+    require_command python3
     require_command qs
     require_command xdg-open
 
@@ -227,6 +249,12 @@ main() {
     verify_payload
     verify_supported_launcher
     check_quickshell_selection
+
+    if [[ -e $LOCAL_ROOT ]]; then
+        assert_local_layout
+        verify_launcher_tree "$LOCAL_ROOT" 'Local'
+    fi
+
     acquire_state_lock
 
     if show_existing_install; then
@@ -236,7 +264,6 @@ main() {
     mapfile -t previous_instances < <(list_instances_for_managed_shell)
 
     if [[ -e $LOCAL_ROOT ]]; then
-        assert_local_layout
         current_root=$LOCAL_ROOT
     else
         initialise_local_copy

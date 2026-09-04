@@ -68,7 +68,7 @@ Item {
                         Wallpapers.previewColourLock = true;
                     Wallpapers.setWallpaper(currentItem.modelData.path);
                     root.screenState.launcher = false;
-                } else if (text.startsWith(GlobalConfig.launcher.actionPrefix) || typeof currentItem.modelData?.onClicked === "function") {
+                } else if (text.startsWith(GlobalConfig.launcher.actionPrefix)) {
                     if (text.startsWith(`${GlobalConfig.launcher.actionPrefix}calc `))
                         currentItem.onClicked();
                     else
