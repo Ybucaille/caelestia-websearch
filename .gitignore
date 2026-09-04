@@ -1,0 +1,8 @@
+*.bak
+*.log
+*.orig
+*.rej
+*.swp
+*.tmp
+*~
+.DS_Store
